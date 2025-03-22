@@ -10,14 +10,6 @@ from collections import defaultdict
 
 from openai import OpenAI
 
-from promptpal.lib import text_library
-
-roleDict = text_library["roles"]
-modifierDict = text_library["modifiers"]
-refineDict = text_library["refinement"]
-extDict = text_library["extensions"]
-patternDict = text_library["patterns"]
-
 # Confirm environment API key
 api_key = os.getenv("OPENAI_API_KEY")
 if api_key is None:
@@ -37,11 +29,6 @@ class CreateAgent:
     A handler for managing queries to the OpenAI API, including prompt preparation,
     API request submission, response processing, and logging.
 
-    This class provides a flexible interface to interact with OpenAIs models, including
-    text-based models (e.g., GPT-4) and image generation models (e.g., DALL-E). It supports
-    features such as associative prompt refinement, chain-of-thought reasoning, code extraction,
-    logging, and unit testing.
-
     Attributes:
         model (str): The model to use for the query (e.g., 'gpt-4o-mini', 'dall-e-3').
         verbose (bool): If True, prints detailed logs and status messages.
@@ -53,55 +40,19 @@ class CreateAgent:
         logging (bool): If True, logs the session to a file.
         seed (int or str): Seed for reproducibility. Can be an integer or a string converted to binary.
         iterations (int): Number of response iterations for refining or condensing outputs.
-        dimensions (str): Dimensions for image generation (e.g., '1024x1024').
-        quality (str): Quality setting for image generation (e.g., 'hd').
-        role (str): The role or persona for the query (e.g., 'assistant', 'artist').
         tokens (dict): Tracks token usage for prompt and completion.
         prefix (str): A unique prefix for log files and outputs.
         client (OpenAI): The OpenAI client instance for API requests.
-        glyph (bool): If True, restructures queries with representative/associative glyphs and logic flow
         temperature (float): Range from 0.0 to 2.0, lower values increase randomness, and higher values increase randomness.
         top_p (float): Range from 0.0 to 2.0, lower values increase determinism, and higher values increase determinism.
         message_limit (int): Maximum number of messages to a single thread before summarizing content and passing to new instance
         last_message (str): Last returned system message
 
-    Current role shortcuts:
-        assistant: Standard personal assistant with improved ability to help with tasks
-        developer: Generates complete, functional application code based on user requirements, ensuring clarity and structure.
-        prompt: Specializes in analyzing and refining AI prompts to enhance clarity, specificity, and effectiveness without executing tasks.
-        refactor: Senior full stack developer with emphases in correct syntax and documentation
-        tester: Quality assurance tester with experience in software testing and debugging, generates high-quality unit tests
-        analyst: For structured data analysis tasks, adhering to strict validation rules, a detailed workflow, and professional reporting
-        visualize: Create clear, insightful data visualizations and provide analysis using structured formats, focusing solely on visualization requests and recommendations.
-        writer: Writing assistant to help with generating science & technology related content
-        editor: Text editing assistant to help with clarity and brevity
-        artist: Creates an images described by the prompt, default style leans toward illustrations
-        photographer: Generates more photo-realistic images
-
     Methods:
-        __init__: Initializes the handler with default or provided values.
         request: Submits a query to the OpenAI API and processes the response.
         status: Reports current attributes and status of agent and session information 
-        cost_report: Reports spending information
-        token_report: Reports token generation information
-        thread_report: Report active threads from current session
-        start_new_thread: Start a new thread with only the current agent.
-        summarize_current_thread: Summarize current conversation history for future context parsing.
-        _extract_and_save_code: Extracts code snippets from the response and saves them to files.
-        _setup_logging: Prepares logging setup.
-        _prepare_query_text: Prepares the query, including prompt modifications and image handling.
-        _validate_model_selection: Validates and selects the model based on user input or defaults.
-        _prepare_system_role: Selects the role based on user input or defaults.
-        _append_file_scanner: Scans files in the message and appends their contents.
-        _validate_image_params: Validates image dimensions and quality for the model.
-        _handle_text_request: Processes text-based responses from OpenAIs chat models.
-        _handle_image_request: Processes image generation requests using OpenAIs image models.
-        _condense_iterations: Condenses multiple API responses into a single coherent response.
-        _refine_user_prompt: Refines an LLM prompt using specified rewrite actions.
-        _update_token_count: Updates token count for prompt and completion.
-        _log_and_print: Logs and prints the provided message if verbose.
-        _calculate_cost: Calculates the approximate cost (USD) of LLM tokens generated.
-        _string_to_binary: Converts a string to a binary-like variable for use as a random seed.
+        new_thread: Start a new thread with only the current agent.
+        summarize_thread: Summarize current conversation history for future context parsing.
     """
 
     def __init__(
@@ -115,15 +66,11 @@ class CreateAgent:
         save_code = False,
         scan_dirs = False,
         new_thread = False,
-        model = "gpt-4o-mini",
-        role = "assistant",
+        model = "gpt-4o",
         seed = "t634e``R75T86979UYIUHGVCXZ",
         iterations = 1,
         temperature = 0.7,
         top_p = 1.0,
-        dimensions = "NA",
-        quality = "NA",
-        stage = 'normal',
         message_limit = 20):
         """
         Initialize the handler with default or provided values.
@@ -145,7 +92,6 @@ class CreateAgent:
         self.top_p = top_p
         self.dimensions = dimensions
         self.quality = quality
-        self.stage = stage
         self.message_limit = message_limit
 
         # Check user input types
@@ -156,7 +102,7 @@ class CreateAgent:
         self.thread_id = thread.id
         thread.message_limit = message_limit
         if self.new_thread == True:
-            self.start_new_thread()
+            self.new_thread()
 
         # Update token counters
         global total_tokens
@@ -166,7 +112,6 @@ class CreateAgent:
             total_tokens[self.model] = {"prompt": 0, "completion": 0}
         
         # Validdate specific hyperparams
-        self.stage = self.stage if self.stage == 'refine_only' else 'normal'
         self.seed = self.seed if isinstance(self.seed, int) else self._string_to_binary(self.seed)
         self.temperature, self.top_p = self._validate_probability_params(self.temperature, self.top_p)
         
@@ -209,7 +154,6 @@ class CreateAgent:
             'top_p': float,
             'dimensions': str,
             'quality': str,
-            'stage': str,
             'message_limit': int
         }
 
@@ -367,15 +311,15 @@ Agent parameters:
         self._log_and_print(statusStr, True, self.logging)
 
         # Token usage report
-        self.token_report()
+        self._token_report()
         
         # $$$ report
-        self.cost_report()
+        self._cost_report()
 
         # Thread report
-        self.thread_report()
+        self._thread_report()
 
-    def start_new_thread(self, context=None):
+    def new_thread(self, context=None):
         """Start a new thread with only the current agent and adds previous context if needed."""
         global thread
         global client
@@ -410,18 +354,11 @@ Agent parameters:
             f"\n{self.role_name} using {self.model} to process updated conversation thread...\n",
                 True, self.logging)
 
-        if self.stage != "refine_only":
-            if "dall-e" not in self.model:
-                thread.current_thread_calls += 1
-                self._handle_text_request()
-            else:
-                self._handle_image_request()
-
         # Check current scope thread
         if thread.current_thread_calls >= thread.message_limit:
             self._log_and_print(f"Reached end of current thread limit.\n", self.verbose, False)
-            summary = self.summarize_current_thread()
-            self.start_new_thread("The following is a summary of a ongoing conversation with a user and an AI assistant:\n" + summary)
+            summary = self.summarize_thread()
+            self.new_thread("The following is a summary of a ongoing conversation with a user and an AI assistant:\n" + summary)
 
     def _init_chat_completion(self, prompt, model='gpt-4o-mini', role='user', iters=1, seed=42, temp=0.7, top_p=1.0):
         """Initialize and submit a single chat completion request"""
@@ -435,7 +372,7 @@ Agent parameters:
 
         return completion
 
-    def summarize_current_thread(self):
+    def summarize_thread(self):
         """Summarize current conversation history for future context parsing."""
         self._log_and_print(f"Agent using gpt-4o-mini to summarize current thread...\n", self.verbose, False)
 
@@ -536,7 +473,7 @@ Agent parameters:
         self.tokens["prompt"] += response_obj.usage.prompt_tokens
         self.tokens["completion"] += response_obj.usage.completion_tokens
 
-    def token_report(self):
+    def _token_report(self):
         """Generates session token report."""
         allTokensStr = ""
         for x in total_tokens.keys():
@@ -551,7 +488,7 @@ Agent parameters:
         self._log_and_print(tokenStr, True, self.logging)
 
 
-    def thread_report(self):
+    def _thread_report(self):
         """Report active threads from current session"""
 
         ids = '\n\t'.join(client.thread_ids)
@@ -584,7 +521,7 @@ Agent parameters:
         self.cost["prompt"] += prompt_cost
         self.cost["completion"] += completion_cost
 
-    def cost_report(self, dec=5):
+    def _cost_report(self, dec=5):
         """Generates session cost report."""
         
         costStr = f"""Overall session cost: ${round(total_cost, dec)}
