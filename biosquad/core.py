@@ -17,9 +17,7 @@ if api_key is None:
 
 # Initialize OpenAI client and conversation thread
 client = OpenAI(api_key=api_key)
-thread = client.beta.threads.create()
-thread.current_thread_calls = 0
-client.thread_ids = set([thread.id])
+client.thread_ids = []
 total_cost = 0.0
 total_tokens = {}
 
@@ -332,7 +330,7 @@ Agent parameters:
             previous_context = client.beta.threads.messages.create(
                 thread_id=thread.id, role="user", content=context)
 
-        client.thread_ids |= set([thread.id])
+        client.thread_ids.append(thread.id)
         self.thread_id = thread.id
 
         # Report
