@@ -32,12 +32,11 @@ class CreateAgent:
         verbose (bool): If True, prints detailed logs and status messages.
         silent (bool): If True, silences all StdOut messages.
         refine (bool): If True, refines the prompt before submission.
-        chain_of_thought (bool): If True, enables chain-of-thought reasoning.
-        save_code (bool): If True, extracts and saves code snippets from the response.
-        scan_dirs (bool): If True, recursively scans directories found in prompt for existing files, extracts contents, and adds to prompt.
+        reasoning (bool): Enables reasoning in system responses.
+        scandirs (bool): Recursively scans directories found in prompt for existing files, extracts contents, and adds to prompt.
         logging (bool): If True, logs the session to a file.
         seed (int or str): Seed for reproducibility. Can be an integer or a string converted to binary.
-        iterations (int): Number of response iterations for refining or condensing outputs.
+        responses (int): Number of response responses for refining or condensing outputs.
         tokens (dict): Tracks token usage for prompt and completion.
         prefix (str): A unique prefix for log files and outputs.
         client (OpenAI): The OpenAI client instance for API requests.
@@ -55,37 +54,32 @@ class CreateAgent:
 
     def __init__(
         self,
-        logging = True,
         verbose = True,
         silent = False,
         refine = False,
-        glyph = False,
-        chain_of_thought = False,
-        save_code = False,
-        scan_dirs = False,
-        new_thread = False,
+        reasoning = False,
+        scandirs = False,
         model = "gpt-4o",
         seed = "t634e``R75T86979UYIUHGVCXZ",
-        iterations = 1,
+        responses = 1,
         temperature = 0.7,
         top_p = 1.0,
         message_limit = 20):
         """
         Initialize the handler with default or provided values.
         """
-        self.logging = logging
+        self.logging = True
+        self.save_code = True
+
         self.verbose = verbose
         self.silent = silent
         self.refine_prompt = refine
-        self.glyph_prompt = glyph
-        self.chain_of_thought = chain_of_thought
-        self.save_code = save_code
-        self.scan_dirs = scan_dirs
-        self.new_thread = new_thread
+        self.reasoning = reasoning
+        self.scan_dirs = scandirs
         self.model = model
         self.role = role
         self.seed = seed
-        self.iterations = iterations
+        self.responses = responses
         self.temperature = temperature
         self.top_p = top_p
         self.dimensions = dimensions
@@ -99,8 +93,6 @@ class CreateAgent:
         global thread
         self.thread_id = thread.id
         thread.message_limit = message_limit
-        if self.new_thread == True:
-            self.new_thread()
 
         # Update token counters
         global total_tokens
@@ -139,15 +131,14 @@ class CreateAgent:
             'verbose': bool,
             'silent': bool,
             'refine_prompt': bool,
-            'glyph_prompt': bool,
-            'chain_of_thought': bool,
+            'reasoning': bool,
             'save_code': bool,
             'scan_dirs': bool,
             'new_thread': bool,
             'model': str,
             'role': str,
             'seed': (int, str),  # seed can be either int or str
-            'iterations': int,
+            'responses': int,
             'temperature': float,
             'top_p': float,
             'dimensions': str,
@@ -210,7 +201,7 @@ class CreateAgent:
                 self.prompt += "\n\n" + self._scan_directory(d)
 
         # Refine prompt if required
-        if self.refine_prompt or self.glyph_prompt:
+        if self.refine_prompt:
             self._log_and_print(
                 "\nAgent using gpt-4o-mini to optimize initial user request...\n", True, self.logging)
             self.prompt = self._refine_user_prompt(self.prompt)
@@ -238,7 +229,7 @@ class CreateAgent:
             self.label = "custom"
 
         # Add chain of thought reporting
-        if self.chain_of_thought:
+        if self.reasoning:
             self.role += modifierDict["cot"]
 
     def _read_file_contents(self, filename):
@@ -288,10 +279,9 @@ Agent parameters:
     Model: {self.model}
     Role: {self.role_name}
     
-    Chain-of-thought: {self.chain_of_thought}
+    Chain-of-thought: {self.reasoning}
     Prompt refinement: {self.refine_prompt}
-    Associative glyphs: {self.glyph_prompt}
-    Response iterations: {self.iterations}
+    Response responses: {self.responses}
     Subdirectory scanning: {self.scan_dirs}
     Text logging: {self.logging}
     Verbose StdOut: {self.verbose}
@@ -379,7 +369,7 @@ Agent parameters:
 
         # Generate concise summary
         summary_prompt = modifierDict['summarize'] + "\n\n" + all_messages
-        summarized = self._init_chat_completion(prompt=summary_prompt, iters=self.iterations, seed=self.seed)
+        summarized = self._init_chat_completion(prompt=summary_prompt, iters=self.responses, seed=self.seed)
 
         return summarized.choices[0].message.content.strip()
 
@@ -405,22 +395,12 @@ Agent parameters:
             reportStr = "\nExtracted code saved to:\n"
             for lang in code_snippets.keys():
                 code = code_snippets[lang]
-                objects = self._extract_object_names(code, lang)
-                file_name = f"{self._find_max_lines(code, objects)}.{self.timestamp}{extDict.get(lang, f'.{lang}')}".lstrip("_.")
+                objects = select_object_name(code, lang)
+                file_name = f"{self._select_largest_object(code, objects)}.{self.timestamp}{extDict.get(lang, f'.{lang}')}".lstrip("_.")
                 reportStr += f"\t{file_name}\n"
                 self._write_script(code, file_name)
 
             self._log_and_print(reportStr, True, self.logging)
-
-        # Check URL annotations - inactive for now
-        #existing, not_existing = self._check_response_urls()
-        #if len(not_existing) >= 1 or len(existing) >= 1:
-        #    reportStr = "\nURL citations detecting in system message\n"
-        #    if len(existing) >= 1:
-        #        reportStr += 'Found:\n\t' '\n\t'.join(existing) + '\n'
-        #    if len(not_existing) >= 1:
-        #        reportStr += 'NOT found:\n\t' '\n\t'.join(not_existing) + '\n'
-        #    self._log_and_print(reportStr, self.verbose, self.logging)
 
     def _write_script(self, content, file_name, outDir="code", lang=None):
         """Writes code to a file."""
@@ -485,7 +465,6 @@ Agent parameters:
 """
         self._log_and_print(tokenStr, True, self.logging)
 
-
     def _thread_report(self):
         """Report active threads from current session"""
 
@@ -531,7 +510,7 @@ Agent parameters:
 """     
         self._log_and_print(costStr, True, self.logging)
 
-    def _condense_iterations(self, api_response):
+    def _condense_responses(self, api_response):
         """Condenses multiple API responses into a single coherent response."""
         api_responses = [r.message.content.strip() for r in api_response.choices]
         api_responses =  "\n\n".join(
@@ -543,7 +522,7 @@ Agent parameters:
         )
         condensed = self._init_chat_completion( 
             prompt= modifierDict['condense'] + "\n\n" + api_responses, 
-            iters=self.iterations, seed=self.seed)
+            iters=self.responses, seed=self.seed)
 
         message = condensed.choices[0].message.content.strip()
         self._log_and_print(
@@ -577,19 +556,16 @@ Agent parameters:
             action_str = "\n".join(refineDict[a] for a in actions) + "\n\n"
             updated_prompt = modifierDict["refine"] + action_str + old_prompt
 
-        if self.glyph_prompt == True:
-            updated_prompt += modifierDict["glyph"]
-
         refined = self._init_chat_completion(
             prompt=updated_prompt, 
             role=self.role,
             seed=self.seed, 
-            iters=self.iterations,
+            iters=self.responses,
             temp=self.temperature, 
             top_p=self.top_p)
 
-        if self.iterations > 1:
-            new_prompt = self._condense_iterations(refined)
+        if self.responses > 1:
+            new_prompt = self._condense_responses(refined)
         else:
             new_prompt = refined.choices[0].message.content.strip()
 
@@ -677,7 +653,7 @@ Agent parameters:
         return code_snippets
 
     @staticmethod
-    def _extract_object_names(code, language):
+    def select_object_name(code, language):
         """
         Extract defined object names (functions, classes, and variables) from a code snippet.
         """
@@ -698,7 +674,7 @@ Agent parameters:
             return variables
 
     @staticmethod
-    def _find_max_lines(code, object_names):
+    def _select_largest_object(code, object_names):
         """
         Count the number of lines of code for each object in the code snippet.
 
@@ -786,42 +762,3 @@ Agent parameters:
                 raise ValueError("No messages found in the thread.")
         else:
             raise ValueError("Assistant failed to generate a response.")
-
-    def _check_response_urls(self):
-        """
-        Extracts all URLs from the given text using regex,checks the existence of 
-        each URL, and returns lists of existing and non-existing URLs.
-        
-        Args:
-            text (str): The input text containing potential URLs.
-
-        Returns:
-            Tuple[List[str], List[str]]: A tuple containing two lists - 
-                                           the first list for existing URLs,
-                                           and the second for non-existing URLs.
-        """
-        # Define a regex pattern for URL extraction.
-        url_pattern = r'https?://[^\s]+|ftp://[^\s]+'
-        urls = re.findall(url_pattern, self.last_message)
-        
-        # Check if identified URLs are real
-        existing_urls = non_existing_urls = []
-        for url in urls:
-            try:
-                # Execute a curl command to check URL existence
-                response = subprocess.run(['curl', '-Is', url], capture_output=True, text=True)
-                
-                if response.returncode == 0:
-                    # Extract status code
-                    status_line = response.stdout.splitlines()[0]
-                    status_code = status_line.split()[1]
-                    if status_code.startswith('2'):  # Status codes 2xx indicate success
-                        existing_urls.append(url)
-                    else:
-                        non_existing_urls.append(url)
-                else:
-                    non_existing_urls.append(url)  # If curl fails, consider the URL as non-existing
-            except Exception as e:
-                non_existing_urls.append(url)  # Append URL in case of any exception
-
-        return existing_urls, non_existing_urls
