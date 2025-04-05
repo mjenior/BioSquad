@@ -7,8 +7,8 @@ import importlib
 import requests
 from requests.auth import HTTPBasicAuth
 
-import fitz
 from docx import Document
+from PyPDF2 import PdfReader
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -64,42 +64,43 @@ def import_python_module(file_path: str):
 
 
 @function_tool
-def find_existing_subpaths(self):
+def find_readable_files(directory):
     """
-    Scan the input string for existing paths and return them in separate lists.
+    Recursively scan the given directory and return a list of file paths
+    that are likely to contain readable text, including .pdf and .docx files.
     """
-    # Regular expression to match potential file paths
-    path_pattern = re.compile(r'([a-zA-Z]:\\[^:<>"|?\n]*|/[^:<>"|?\n]*)')
+    text_readable_files = []
 
-    # Find all matches in the input string
-    matches = path_pattern.findall(self.prompt)
+    for root, _, files in os.walk(directory):
+        for filename in files:
+            filepath = os.path.join(root, filename)
+            ext = os.path.splitext(filename)[1].lower()
 
-    # Separate files and directories
-    existing_paths = []
-    for match in matches:
-        if os.path.isdir(match):
-            existing_paths.append(match)
+            try:
+                if ext in ['.pdf']:
+                    # Try reading text from PDF
+                    reader = PdfReader(filepath)
+                    if any(page.extract_text() for page in reader.pages):
+                        text_readable_files.append(filepath)
 
-    return existing_paths
+                elif ext in ['.docx']:
+                    # Try reading text from DOCX
+                    doc = Document(filepath)
+                    if any(para.text.strip() for para in doc.paragraphs):
+                        text_readable_files.append(filepath)
+
+                else:
+                    # Try opening as UTF-8 plain text
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        f.read(1024)
+                    text_readable_files.append(filepath)
+
+            except Exception:
+                continue  # Skip unreadable or corrupted files
+
+    return text_readable_files
 
 
-@function_tool
-def read_file_contents(filename):
-    """Reads the contents of a given file."""
-    with open(filename, "r", encoding="utf-8") as f:
-        return f"# File: {filename}\n{f.read()}"
-
-@function_tool
-def read_docx_text(doc_path):
-    """Reads a docx file and returns contents as a string"""
-    doc = Document(doc_path)
-    return "\n".join([para.text for para in doc.paragraphs])
-
-@function_tool
-def read_pdf_text(pdf_path):
-    """Reads a PDF file and returns contents as a string"""
-    doc = fitz.open(pdf_path)
-    return "\n".join([page.get_text("text") for page in doc])
 
 @function_tool
 def read_google_doc(doc_id, credentials_path):
