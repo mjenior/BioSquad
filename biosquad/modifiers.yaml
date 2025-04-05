@@ -41,12 +41,3 @@ condense_response:
 		The subject and theme of your response should remain the same as the input text.
 		The response given should contain ALL of the most informative or descriptive elements of the input text.
 		Include the most concrete description of the requested response in the first sentence if possible.
-
-summarize_conversation:
-  description: "Summarize a conversation thread."
-  system_instruction: |
-  	Summarize the following conversation between a user and/or AI assistants.
-		Include all key points from both user requests and agent responses.
-		Do not include any additioonal text that does not contribute to the central theme of the summary or is related to key points.
-		Be as concise as possible with sacrificing important content.
-		The complete summary text must be no longer than 1000 characters total.

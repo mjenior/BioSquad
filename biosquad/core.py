@@ -10,47 +10,10 @@ from collections import defaultdict
 
 from openai import OpenAI
 
-# Confirm environment API key
-api_key = os.getenv("OPENAI_API_KEY")
-if api_key is None:
-    raise EnvironmentError("OPENAI_API_KEY environment variable not found!")
-
-# Initialize OpenAI client and conversation thread
-client = OpenAI(api_key=api_key)
-client.thread_ids = []
-total_cost = 0.0
-total_tokens = {}
 
 
 class CreateAgent:
-    """
-    A handler for managing queries to the OpenAI API, including prompt preparation,
-    API request submission, response processing, and logging.
 
-    Attributes:
-        model (str): The model to use for the query (e.g., 'gpt-4o-mini', 'dall-e-3').
-        verbose (bool): If True, prints detailed logs and status messages.
-        silent (bool): If True, silences all StdOut messages.
-        refine (bool): If True, refines the prompt before submission.
-        reasoning (bool): Enables reasoning in system responses.
-        scandirs (bool): Recursively scans directories found in prompt for existing files, extracts contents, and adds to prompt.
-        logging (bool): If True, logs the session to a file.
-        seed (int or str): Seed for reproducibility. Can be an integer or a string converted to binary.
-        responses (int): Number of response responses for refining or condensing outputs.
-        tokens (dict): Tracks token usage for prompt and completion.
-        prefix (str): A unique prefix for log files and outputs.
-        client (OpenAI): The OpenAI client instance for API requests.
-        temperature (float): Range from 0.0 to 2.0, lower values increase randomness, and higher values increase randomness.
-        top_p (float): Range from 0.0 to 2.0, lower values increase determinism, and higher values increase determinism.
-        message_limit (int): Maximum number of messages to a single thread before summarizing content and passing to new instance
-        last_message (str): Last returned system message
-
-    Methods:
-        request: Submits a query to the OpenAI API and processes the response.
-        status: Reports current attributes and status of agent and session information 
-        new_thread: Start a new thread with only the current agent.
-        summarize_thread: Summarize current conversation history for future context parsing.
-    """
 
     def __init__(
         self,
@@ -61,7 +24,6 @@ class CreateAgent:
         scandirs = False,
         model = "gpt-4o",
         seed = "t634e``R75T86979UYIUHGVCXZ",
-        responses = 1,
         temperature = 0.7,
         top_p = 1.0,
         message_limit = 20):
@@ -79,7 +41,6 @@ class CreateAgent:
         self.model = model
         self.role = role
         self.seed = seed
-        self.responses = responses
         self.temperature = temperature
         self.top_p = top_p
         self.dimensions = dimensions
@@ -138,7 +99,6 @@ class CreateAgent:
             'model': str,
             'role': str,
             'seed': (int, str),  # seed can be either int or str
-            'responses': int,
             'temperature': float,
             'top_p': float,
             'dimensions': str,
@@ -206,10 +166,6 @@ class CreateAgent:
                 "\nAgent using gpt-4o-mini to optimize initial user request...\n", True, self.logging)
             self.prompt = self._refine_user_prompt(self.prompt)
 
-    def _validate_model_selection(self, input_model):
-        """Validates and selects the model based on user input or defaults."""
-        openai_models = ["gpt-4o","o1","o1-mini","o1-preview","dall-e-3","dall-e-2"]
-        self.model = input_model.lower() if input_model.lower() in openai_models else "gpt-4o-mini"
 
     def _prepare_system_role(self, input_role):
         """Prepares system role text."""
@@ -232,46 +188,8 @@ class CreateAgent:
         if self.reasoning:
             self.role += modifierDict["cot"]
 
-    def _read_file_contents(self, filename):
-        """Reads the contents of a given file."""
-        with open(filename, "r", encoding="utf-8") as f:
-            return f"# File: {filename}\n{f.read()}"
 
-    def _refine_custom_role(self, init_role):
-        """Reformat input custom user roles for improved outcomes."""
 
-        self._log_and_print(f"Refining custom role text...\n", self.verbose, self.logging)
-
-        # Reformat role text
-        refine_prompt = "Format and improve the following system role propmt to maximize clarity and potential output quality:\n\n" + init_role
-        response = self._init_chat_completion(refine_prompt)
-        custom_role = response.choices[0].message.content.strip()
-        
-        # Name custom role
-        refine_prompt = "Generate a short and accurate name for the following system role prompt:\n\n" + custom_role
-        response = self._init_chat_completion(refine_prompt)
-        role_name = response.choices[0].message.content.strip()
-
-        reportStr = f"""Role name: {role_name}
-Description: {custom_role}
-
-        """
-        self._log_and_print(reportStr, self.verbose, self.logging)
-
-        return role_name, custom_role
-
-    def _validate_image_params(self, dimensions, quality):
-        """Validates image dimensions and quality for the model."""
-        valid_dimensions = {"dall-e-3": ["1024x1024", "1792x1024", "1024x1792"],
-                            "dall-e-2": ["1024x1024", "512x512", "256x256"]}
-        if (self.model in valid_dimensions and dimensions.lower() not in valid_dimensions[self.model]):
-            self.dimensions = "1024x1024"
-        else:
-            self.dimensions = dimensions
-
-        self.quality = "hd" if quality.lower() in {"h", "hd", "high", "higher", "highest"} else "standard"
-        self.quality = "hd" if self.label == "photographer" else self.quality # Check for photo role
-        
     def status(self):
         """Generate status message."""
         statusStr = f"""
@@ -281,14 +199,10 @@ Agent parameters:
     
     Chain-of-thought: {self.reasoning}
     Prompt refinement: {self.refine_prompt}
-    Response responses: {self.responses}
     Subdirectory scanning: {self.scan_dirs}
     Text logging: {self.logging}
     Verbose StdOut: {self.verbose}
     Code snippet detection: {self.save_code}
-
-    Image dimensions: {self.dimensions}
-    Image quality: {self.quality}
 
     Time stamp: {self.timestamp}
     Seed: {self.seed}
@@ -348,12 +262,12 @@ Agent parameters:
             summary = self.summarize_thread()
             self.new_thread("The following is a summary of a ongoing conversation with a user and an AI assistant:\n" + summary)
 
-    def _init_chat_completion(self, prompt, model='gpt-4o-mini', role='user', iters=1, seed=42, temp=0.7, top_p=1.0):
+    def _init_chat_completion(self, prompt, model='gpt-4o-mini', role='user', seed=42, temp=0.7, top_p=1.0):
         """Initialize and submit a single chat completion request"""
         message = [{"role": "user", "content": prompt}, {"role": "system", "content": role}]
 
         completion = client.chat.completions.create(
-            model=model, messages=message, n=iters,
+            model=model, messages=message, 
             seed=seed, temperature=temp, top_p=top_p)
         self._update_token_count(completion)
         self._calculate_cost()
@@ -369,7 +283,7 @@ Agent parameters:
 
         # Generate concise summary
         summary_prompt = modifierDict['summarize'] + "\n\n" + all_messages
-        summarized = self._init_chat_completion(prompt=summary_prompt, iters=self.responses, seed=self.seed)
+        summarized = self._init_chat_completion(prompt=summary_prompt, seed=self.seed)
 
         return summarized.choices[0].message.content.strip()
 
@@ -402,45 +316,7 @@ Agent parameters:
 
             self._log_and_print(reportStr, True, self.logging)
 
-    def _write_script(self, content, file_name, outDir="code", lang=None):
-        """Writes code to a file."""
-        os.makedirs(outDir, exist_ok=True)
-        self.code_files.append(f"{os.getcwd()}/{outDir}/{file_name}")
-        with open(f"{outDir}/{file_name}", "w", encoding="utf-8") as f:
-            if lang:
-                f.write(f"#!/usr/bin/env {lang}\n\n")
-            f.write(f"# Code generated by {self.model}\n\n")
-            f.write(content)
 
-    def _handle_image_request(self):
-        """Processes image generation requests using OpenAIs image models."""
-        os.makedirs("images", exist_ok=True)
-        response = client.images.generate(
-            model=self.model,
-            prompt=self.prompt,
-            n=1,
-            size=self.dimensions,
-            quality=self.quality,
-        )
-        self._update_token_count(response)
-        self._calculate_cost()
-        self._log_and_print(
-            f"\nRevised initial prompt:\n{response.data[0].revised_prompt}",
-            self.verbose,
-            self.logging,
-        )
-        image_data = requests.get(response.data[0].url).content
-        image_file = f"images/{self.prefix}.image.png"
-        with open(image_file, "wb") as outFile:
-            outFile.write(image_data)
-
-        self.last_message = (
-            "\nRevised image prompt:\n"
-            + response.data[0].revised_prompt
-            + "\nGenerated image saved to:\n"
-            + image_file
-        )
-        self._log_and_print(self.last_message, True, self.logging)
 
     def _update_token_count(self, response_obj):
         """Updates token count for prompt and completion."""
@@ -510,39 +386,6 @@ Agent parameters:
 """     
         self._log_and_print(costStr, True, self.logging)
 
-    def _condense_responses(self, api_response):
-        """Condenses multiple API responses into a single coherent response."""
-        api_responses = [r.message.content.strip() for r in api_response.choices]
-        api_responses =  "\n\n".join(
-            ["\n".join([f"Iteration: {i + 1}", api_responses[i]])
-            for i in range(len(api_responses))])
-
-        self._log_and_print(
-            f"\nAgent using gpt-4o-mini to condense system responses...", self.verbose, self.logging
-        )
-        condensed = self._init_chat_completion( 
-            prompt= modifierDict['condense'] + "\n\n" + api_responses, 
-            iters=self.responses, seed=self.seed)
-
-        message = condensed.choices[0].message.content.strip()
-        self._log_and_print(
-            f"\nCondensed text:\n{message}", self.verbose, self.logging
-        )
-
-        return message
-
-    def _gen_iteration_str(self, responses):
-        """Format single string with response iteration text"""
-        outStr = "\n\n".join(
-            [
-                "\n".join([f"Iteration: {i + 1}", responses[i]])
-                for i in range(len(responses))
-            ]
-        )
-        self._log_and_print(outStr, self.verbose, self.logging)
-
-        return outStr
-
     def _refine_user_prompt(self, old_prompt):
         """Refines an LLM prompt using specified rewrite actions."""
         updated_prompt = old_prompt
@@ -560,7 +403,6 @@ Agent parameters:
             prompt=updated_prompt, 
             role=self.role,
             seed=self.seed, 
-            iters=self.responses,
             temp=self.temperature, 
             top_p=self.top_p)
 
@@ -591,117 +433,6 @@ Agent parameters:
         # Constrain length
         return int(binary[0 : len(str(sys.maxsize))])
 
-    @staticmethod
-    def _is_code_file(file_path):
-        """Check if a file has a code extension."""
-        return os.path.splitext(file_path)[1].lower() in set(extDict.values())
-
-    def _scan_directory(self, path="code"):
-        """Recursively scan a directory and return the content of all code files."""
-        codebase = ""
-        for root, _, files in os.walk(path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                if self._is_code_file(file_path):
-                    codebase += f"File: {file_path}\n"
-                    codebase += self._read_file_contents(file_path)
-                    codebase += "\n\n"
-
-        return codebase
-
-    def _find_existing_paths(self):
-        """
-        Scan the input string for existing paths and return them in separate lists.
-        """
-        # Regular expression to match potential file paths
-        path_pattern = re.compile(r'([a-zA-Z]:\\[^:<>"|?\n]*|/[^:<>"|?\n]*)')
-
-        # Find all matches in the input string
-        matches = path_pattern.findall(self.prompt)
-
-        # Separate files and directories
-        existing_paths = []
-        for match in matches:
-            if os.path.isdir(match):
-                existing_paths.append(match)
-
-        return existing_paths
-
-    def _find_existing_files(self):
-
-        # Filter filenames by checking if they exist in the current directory or system's PATH
-        existing_files = [
-            x
-            for x in self.prompt.split()
-            if os.path.isfile(x.rstrip(string.punctuation))
-        ]
-
-        return existing_files
-
-    def _extract_code_snippets(self):
-        """
-        Extract code snippets from a large body of text using triple backticks as delimiters.
-        Also saves the language tag at the start of each snippet.
-        """
-        # Regular expression to match code blocks enclosed in triple backticks, including the language tag
-        code_snippets = defaultdict(str)
-        code_pattern = re.compile(r"```(\w+)\n(.*?)```", re.DOTALL)
-        snippets = code_pattern.findall(self.last_message)
-        for lang, code in snippets:
-            code_snippets[lang] += code.strip()
-
-        return code_snippets
-
-    @staticmethod
-    def select_object_name(code, language):
-        """
-        Extract defined object names (functions, classes, and variables) from a code snippet.
-        """
-        # Get language-specific patterns
-        patterns = patternDict.get(language, {})
-
-        # Extract object names using the language-specific patterns
-        classes = patterns.get("class", re.compile(r"")).findall(code)
-        functions = patterns.get("function", re.compile(r"")).findall(code)
-        variables = patterns.get("variable", re.compile(r"")).findall(code)
-
-        # Select objects to return based on hierarachy
-        if len(classes) > 0:
-            return classes
-        elif len(functions) > 0:
-            return functions
-        else:
-            return variables
-
-    @staticmethod
-    def _select_largest_object(code, object_names):
-        """
-        Count the number of lines of code for each object in the code snippet.
-
-        Args:
-            code (str): The code snippet to analyze.
-            object_names (list): A list of object names to count lines for.
-
-        Returns:
-            str: Name of object with the largest line count.
-        """
-        rm_names = ["main", "functions", "classes", "variables"]
-        line_counts = {name: 0 for name in object_names if name not in rm_names}
-        line_counts['code'] = 1
-        current_object = None
-
-        for line in code.split("\n"):
-            # Check if the line defines a new object
-            for name in object_names:
-                if re.match(rf"\s*(def|class)\s+{name}\s*[\(:]", line):
-                    current_object = name
-                    break
-
-            # Count lines for the current object
-            if current_object and line.strip() and current_object not in rm_names:
-                line_counts[current_object] += 1
-
-        return max(line_counts, key=line_counts.get)
 
     def _create_new_agent(self, interpreter=False):
         """
